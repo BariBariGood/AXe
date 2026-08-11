@@ -5,6 +5,12 @@ All notable changes to the AXe iOS testing framework will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed coordinate taps (`tap -x/-y`) silently no-oping on SwiftUI `Toggle` and `UISwitch` controls while reporting success; with the default `automatic` tap style, AXe now inspects the element at the tapped point and uses physical touch for switch-like controls.
+
 ## [v1.8.0] - 2026-07-20
 
 ### Added
