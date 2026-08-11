@@ -271,6 +271,111 @@ struct AccessibilityFetcherTests {
         }
     }
 
+    @Test("Classifies translation-unavailable errors including nested underlying errors")
+    func classifiesTranslationUnavailableErrors() {
+        let direct = NSError(
+            domain: "Accessibility",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "No translation object returned for simulator. This means you have likely specified a point onscreen that is invalid or invisible due to a fullscreen dialog"]
+        )
+        let nested = NSError(
+            domain: "Wrapper",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Fetch failed",
+                NSUnderlyingErrorKey: direct,
+            ]
+        )
+        let unrelated = NSError(
+            domain: "Accessibility",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "Channel disconnected"]
+        )
+
+        #expect(AccessibilityFetcher.isTranslationUnavailableError(direct))
+        #expect(AccessibilityFetcher.isTranslationUnavailableError(nested))
+        #expect(!AccessibilityFetcher.isTranslationUnavailableError(unrelated))
+    }
+
+    @Test("Retries translation-unavailable failures with backoff until the UI is ready")
+    func retriesTranslationUnavailableFailures() async throws {
+        let notReady = NSError(
+            domain: "Accessibility",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "No translation object returned for simulator."]
+        )
+        var attempts = 0
+        var waits: [Duration] = []
+
+        let result = try await AccessibilityFetcher.retryingWhileTranslationUnavailable(
+            logger: AxeLogger(),
+            wait: { waits.append($0) }
+        ) {
+            attempts += 1
+            if attempts < 3 {
+                throw notReady
+            }
+            return "ready"
+        }
+
+        #expect(result == "ready")
+        #expect(attempts == 3)
+        #expect(waits == [.milliseconds(500), .milliseconds(1000)])
+    }
+
+    @Test("Reports an accurate not-ready error when translation retries are exhausted")
+    func reportsNotReadyErrorAfterExhaustedRetries() async {
+        let notReady = NSError(
+            domain: "Accessibility",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "No translation object returned for simulator."]
+        )
+        var attempts = 0
+
+        do {
+            _ = try await AccessibilityFetcher.retryingWhileTranslationUnavailable(
+                logger: AxeLogger(),
+                wait: { _ in }
+            ) {
+                attempts += 1
+                throw notReady
+            } as String
+            Issue.record("Expected exhausted retries to fail")
+        } catch {
+            #expect(String(reflecting: type(of: error)) == "AXe.CLIError")
+            let message = String(describing: error)
+            #expect(message.contains("not ready for accessibility queries"))
+            #expect(!message.lowercased().contains("translation object"))
+        }
+
+        #expect(attempts == 5)
+    }
+
+    @Test("Propagates unrelated errors without translation retries")
+    func propagatesUnrelatedErrorsWithoutTranslationRetries() async {
+        let unrelated = NSError(
+            domain: "Accessibility",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "Channel disconnected"]
+        )
+        var attempts = 0
+
+        do {
+            _ = try await AccessibilityFetcher.retryingWhileTranslationUnavailable(
+                logger: AxeLogger(),
+                wait: { _ in Issue.record("Unrelated errors should not wait") }
+            ) {
+                attempts += 1
+                throw unrelated
+            } as String
+            Issue.record("Expected the unrelated error to propagate")
+        } catch {
+            #expect(error.localizedDescription == "Channel disconnected")
+        }
+
+        #expect(attempts == 1)
+    }
+
     @Test("Restarts the canonical testmanagerd service with direct simctl arguments")
     func restartsCanonicalTestManagerService() async throws {
         var executableURL: URL?

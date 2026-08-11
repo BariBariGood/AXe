@@ -5,6 +5,12 @@ All notable changes to the AXe iOS testing framework will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed `describe-ui` failing with a misleading "No translation object returned" error when the simulator UI is queried right after boot or app launch; AXe now retries with a short backoff and reports an accurate "UI is not ready yet" error if the UI never becomes ready.
+
 ## [v1.8.0] - 2026-07-20
 
 ### Added

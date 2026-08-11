@@ -48,10 +48,12 @@ struct AccessibilityFetcher {
             logger: logger,
             dependencies: recoveryDependencies
         ) {
-            if let point {
-                return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+            try await retryingWhileTranslationUnavailable(logger: logger) {
+                if let point {
+                    return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+                }
+                return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
             }
-            return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
         }
     }
 
@@ -118,6 +120,45 @@ struct AccessibilityFetcher {
             throw CLIError(errorDescription: "Accessibility hierarchy could not be serialized.")
         }
         return latestData
+    }
+
+    static func isTranslationUnavailableError(_ error: Error) -> Bool {
+        errorChain(from: error).contains { error in
+            [
+                error.localizedDescription,
+                error.localizedFailureReason,
+                error.userInfo[NSDebugDescriptionErrorKey] as? String,
+            ].compactMap { $0?.lowercased() }
+                .contains { $0.contains("no translation object returned") }
+        }
+    }
+
+    static func retryingWhileTranslationUnavailable<T>(
+        logger: AxeLogger,
+        maximumAttempts: Int = 5,
+        wait: @MainActor (Duration) async throws -> Void = { duration in
+            try await Task.sleep(for: duration)
+        },
+        operation: @MainActor () async throws -> T
+    ) async throws -> T {
+        precondition(maximumAttempts > 0)
+        for attempt in 0..<maximumAttempts {
+            do {
+                return try await operation()
+            } catch {
+                guard isTranslationUnavailableError(error) else {
+                    throw error
+                }
+                guard attempt < maximumAttempts - 1 else {
+                    throw CLIError(
+                        errorDescription: "The simulator UI is not ready for accessibility queries yet. This commonly happens for a few seconds after booting the simulator or launching an app. AXe retried \(maximumAttempts) times without the UI becoming ready; wait a moment and try again."
+                    )
+                }
+                logger.info().log("Simulator UI is not ready for accessibility queries yet; retrying")
+                try await wait(.milliseconds(500 * (1 << attempt)))
+            }
+        }
+        throw CLIError(errorDescription: "The simulator UI is not ready for accessibility queries yet.")
     }
 
     static func retryingAfterTestManagerRecovery<T>(
