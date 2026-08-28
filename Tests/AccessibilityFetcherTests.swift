@@ -346,6 +346,36 @@ struct AccessibilityFetcherTests {
             let message = String(describing: error)
             #expect(message.contains("not ready for accessibility queries"))
             #expect(!message.lowercased().contains("translation object"))
+            #expect(!message.contains("fullscreen dialog"))
+        }
+
+        #expect(attempts == 5)
+    }
+
+    @Test("Preserves the invalid-point cause when point-query translation retries are exhausted")
+    func reportsPointQueryCauseAfterExhaustedRetries() async {
+        let invalidPoint = NSError(
+            domain: "Accessibility",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "No translation object returned for simulator. This means you have likely specified a point onscreen that is invalid or invisible due to a fullscreen dialog"]
+        )
+        var attempts = 0
+
+        do {
+            _ = try await AccessibilityFetcher.retryingWhileTranslationUnavailable(
+                logger: AxeLogger(),
+                wait: { _ in },
+                causeHint: "If you requested a specific point, it may be invalid or hidden by a fullscreen dialog."
+            ) {
+                attempts += 1
+                throw invalidPoint
+            } as String
+            Issue.record("Expected exhausted retries to fail")
+        } catch {
+            #expect(String(reflecting: type(of: error)) == "AXe.CLIError")
+            let message = String(describing: error)
+            #expect(message.contains("not ready for accessibility queries"))
+            #expect(message.contains("invalid or hidden by a fullscreen dialog"))
         }
 
         #expect(attempts == 5)

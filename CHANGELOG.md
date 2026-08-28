@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed `describe-ui` failing with a misleading "No translation object returned" error when the simulator UI is queried right after boot or app launch; AXe now retries with a short backoff and reports an accurate "UI is not ready yet" error if the UI never becomes ready.
+- Fixed `describe-ui` failing with a misleading "No translation object returned" error when the simulator UI is queried right after boot or app launch; AXe now retries with a short backoff and reports an accurate "UI is not ready yet" error if the UI never becomes ready ([#458](https://github.com/getsentry/XcodeBuildMCP/issues/458)).
 
 ## [v1.8.0] - 2026-07-20
 

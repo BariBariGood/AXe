@@ -48,7 +48,12 @@ struct AccessibilityFetcher {
             logger: logger,
             dependencies: recoveryDependencies
         ) {
-            try await retryingWhileTranslationUnavailable(logger: logger) {
+            try await retryingWhileTranslationUnavailable(
+                logger: logger,
+                causeHint: point == nil
+                    ? nil
+                    : "If you requested a specific point, it may be invalid or hidden by a fullscreen dialog."
+            ) {
                 if let point {
                     return try await fetchAccessibilityInfoJSONData(from: target, at: point)
                 }
@@ -139,9 +144,18 @@ struct AccessibilityFetcher {
         wait: @MainActor (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
         },
+        causeHint: String? = nil,
         operation: @MainActor () async throws -> T
     ) async throws -> T {
         precondition(maximumAttempts > 0)
+        // Point queries can exhaust retries on a permanent failure: the simulator
+        // reports an invalid or dialog-hidden point with the same translation
+        // error it uses for a UI that is not ready yet. Preserve both causes in
+        // the terminal error so callers are not misled into waiting on a bad point.
+        let terminalErrorDescription = [
+            "The simulator UI is not ready for accessibility queries yet. This commonly happens for a few seconds after booting the simulator or launching an app. AXe retried \(maximumAttempts) times without the UI becoming ready; wait a moment and try again.",
+            causeHint,
+        ].compactMap { $0 }.joined(separator: " ")
         for attempt in 0..<maximumAttempts {
             do {
                 return try await operation()
@@ -150,9 +164,7 @@ struct AccessibilityFetcher {
                     throw error
                 }
                 guard attempt < maximumAttempts - 1 else {
-                    throw CLIError(
-                        errorDescription: "The simulator UI is not ready for accessibility queries yet. This commonly happens for a few seconds after booting the simulator or launching an app. AXe retried \(maximumAttempts) times without the UI becoming ready; wait a moment and try again."
-                    )
+                    throw CLIError(errorDescription: terminalErrorDescription)
                 }
                 logger.info().log("Simulator UI is not ready for accessibility queries yet; retrying")
                 try await wait(.milliseconds(500 * (1 << attempt)))
